@@ -434,12 +434,6 @@ const DEFAULT_BRAND = {
   logoInitials: "",
   accentColor: "#c9a84c",
 };
-const loadJSON = (key, fallback = null) => {
-  try { const item = localStorage.getItem(key); return item ? JSON.parse(item) : fallback; } catch { return fallback; }
-};
-const saveJSON = (key, value) => {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-};
 
 const loadBranding = () => {
   try { return { ...DEFAULT_BRAND, ...JSON.parse(localStorage.getItem(BRAND_KEY)||"{}") }; } catch { return DEFAULT_BRAND; }
@@ -2635,8 +2629,6 @@ export default function App() {
     };
     loadBackend();
   }, []);
-
-  const updateProject=u=>setProjects(ps=>ps.map(p=>p.id===u.id?u:p));
 
   const handleStudioSignup=(plan)=>{setSignupPlan(plan);setScreen("studio-signup");};
   const handleStudioSignupDone=(u)=>{saveStudioUser(u);setUser(u);setScreen("studio");};
