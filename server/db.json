@@ -1,0 +1,20 @@
+{
+  "studioUser": null,
+  "clients": [],
+  "projects": [],
+  "services": [],
+  "branding": {
+    "businessName": "",
+    "tagline": "",
+    "email": "",
+    "phone": "",
+    "website": "",
+    "address": "",
+    "invoiceNote": "Thank you for your business!",
+    "logoInitials": "",
+    "accentColor": "#c9a84c"
+  },
+  "stripeConfig": {
+    "publishableKey": ""
+  }
+}

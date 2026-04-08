@@ -422,6 +422,7 @@ function InvDoc({inv, project, onPay, brand}) {
 
 // ── BRANDING CONFIG ───────────────────────────────────────────────────────────
 const BRAND_KEY = "elev8_branding";
+const STRIPE_CONFIG_KEY = "elev8_stripe_config";
 const DEFAULT_BRAND = {
   businessName: "",
   tagline: "",
@@ -433,6 +434,13 @@ const DEFAULT_BRAND = {
   logoInitials: "",
   accentColor: "#c9a84c",
 };
+const loadJSON = (key, fallback = null) => {
+  try { const item = localStorage.getItem(key); return item ? JSON.parse(item) : fallback; } catch { return fallback; }
+};
+const saveJSON = (key, value) => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+};
+
 const loadBranding = () => {
   try { return { ...DEFAULT_BRAND, ...JSON.parse(localStorage.getItem(BRAND_KEY)||"{}") }; } catch { return DEFAULT_BRAND; }
 };
@@ -445,7 +453,55 @@ const loadStripeConfig = () => {
 const saveStripeConfig = cfg => {
   try { localStorage.setItem(STRIPE_CONFIG_KEY, JSON.stringify(cfg)); } catch {}
 };
+const loadJSON = (key, fallback = null) => {
+  try { const item = localStorage.getItem(key); return item ? JSON.parse(item) : fallback; } catch { return fallback; }
+};
+const saveJSON = (key, value) => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+};
+const loadStudioUser = () => loadJSON("elev8_studio_user", null);
+const saveStudioUser = u => saveJSON("elev8_studio_user", u);
+const loadClients = () => loadJSON("elev8_clients", []);
+const saveClients = c => saveJSON("elev8_clients", c);
+const loadProjects = () => loadJSON("elev8_projects", []);
+const saveProjects = p => saveJSON("elev8_projects", p);
+const loadServices = () => loadJSON("elev8_services", DEFAULT_SERVICES);
+const saveServices = s => saveJSON("elev8_services", s);
+const loadSession = () => loadJSON("elev8_session", null);
+const saveSession = s => saveJSON("elev8_session", s);
+const apiFetch = async (path, options = {}) => {
+  const opts = {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  };
+  if (opts.body && typeof opts.body !== 'string') {
+    opts.body = JSON.stringify(opts.body);
+  }
+  const res = await fetch(`/api/${path}`, opts);
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json.error || json.message || res.statusText);
+  }
+  return json;
+};
 let stripePromise = null;
+const loadStripe = async (key) => {
+  if (!key) return null;
+  if (stripePromise && stripePromise.key === key) return stripePromise.instance;
+  if (typeof window === "undefined") return null;
+  if (!window.Stripe) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://js.stripe.com/v3/";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+  const instance = window.Stripe(key);
+  stripePromise = { key, instance };
+  return instance;
+};
 
 // ── PAY MODAL — STABLE CRASH-PROOF VERSION ────────────────────────────────────
 function PayModal({inv, project, onClose, onPaid, stripeKey}) {
@@ -456,18 +512,54 @@ function PayModal({inv, project, onClose, onPaid, stripeKey}) {
   const [error,  setError]    = useState("");
   const [name,   setName]     = useState("");
   const [email,  setEmail]    = useState("");
-  const [cardNum,setCardNum]  = useState("");
-  const [expiry, setExpiry]   = useState("");
-  const [cvc,    setCvc]      = useState("");
+  const [stripe, setStripe]   = useState(null);
+  const cardRef                 = useRef(null);
+  const elementsRef             = useRef(null);
 
   const hasStripe = !!(stripeKey && stripeKey.startsWith("pk_"));
   const isLive    = !!(stripeKey && stripeKey.startsWith("pk_live_"));
   const isTest    = !!(stripeKey && stripeKey.startsWith("pk_test_"));
 
-  const fmtCardNum = v => v.replace(/\D/g,"").slice(0,16).replace(/(.{4})/g,"$1 ").trim();
-  const fmtExpiry  = v => { const d=v.replace(/\D/g,"").slice(0,4); return d.length>2?d.slice(0,2)+"/"+d.slice(2):d; };
+  useEffect(() => {
+    let mounted = true;
+    if (!hasStripe) return;
+    setError("");
 
-  // Animated progress bar payment simulation
+    (async () => {
+      try {
+        const stripeInstance = await loadStripe(stripeKey);
+        if (!mounted || !stripeInstance) return;
+        const elements = stripeInstance.elements();
+        const cardElement = elements.create("card", {
+          style: {
+            base: {
+              color: "#f0ede8",
+              fontFamily: "var(--fb)",
+              fontSize: "15px",
+              "::placeholder": { color: "rgba(240,237,232,0.45)" },
+            },
+            invalid: { color: "#e07070" },
+          },
+        });
+        cardElement.mount("#stripe-card-element");
+        cardRef.current = cardElement;
+        elementsRef.current = elements;
+        setStripe(stripeInstance);
+      } catch (err) {
+        setError("Unable to load Stripe. Please refresh and try again.");
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      if (cardRef.current) {
+        cardRef.current.destroy();
+        cardRef.current = null;
+      }
+      elementsRef.current = null;
+    };
+  }, [stripeKey, hasStripe]);
+
   const runProgress = (onFinish) => {
     setProc(true); setPct(0); setError("");
     let p = 0;
@@ -481,25 +573,79 @@ function PayModal({inv, project, onClose, onPaid, stripeKey}) {
         setPct(Math.min(Math.round(p), 99));
       }
     }, 150);
+    return iv;
   };
 
-  const handlePay = () => {
+  const handlePay = async () => {
     if (proc || done) return;
     setError("");
 
-    // Zelle — just confirm manually
     if (method === "zelle") {
       setDone(true);
       setTimeout(onPaid, 1000);
       return;
     }
 
-    // Card validation
     if (method === "card") {
-      if (!name.trim())           { setError("Please enter the name on your card."); return; }
-      if (cardNum.replace(/\s/g,"").length < 16) { setError("Please enter a valid 16-digit card number."); return; }
-      if (expiry.length < 5)      { setError("Please enter a valid expiry date (MM/YY)."); return; }
-      if (cvc.length < 3)         { setError("Please enter a valid CVC."); return; }
+      if (!hasStripe) {
+        setError("Stripe publishable key is not configured. Go to Stripe Settings.");
+        return;
+      }
+      if (!name.trim()) { setError("Please enter the name on your card."); return; }
+      if (!email.trim()) { setError("Please enter a valid email address."); return; }
+      if (!stripe || !cardRef.current) { setError("Stripe is not ready yet. Please try again in a moment."); return; }
+
+      setProc(true);
+      setPct(5);
+      try {
+        const paymentMethodResult = await stripe.createPaymentMethod({
+          type: "card",
+          card: cardRef.current,
+          billing_details: { name: name.trim(), email: email.trim() },
+        });
+        if (paymentMethodResult.error) {
+          setError(paymentMethodResult.error.message || "Unable to create payment method.");
+          setProc(false);
+          return;
+        }
+
+        const resp = await fetch("/api/create-payment-intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amountCents: Math.round(inv.total * 100),
+            invoiceNumber: inv.number,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          setError(data.error || "Payment server error. Please check your Stripe setup.");
+          setProc(false);
+          return;
+        }
+
+        setPct(35);
+        const confirmResult = await stripe.confirmCardPayment(data.clientSecret, {
+          payment_method: paymentMethodResult.paymentMethod.id,
+        });
+
+        if (confirmResult.error) {
+          setError(confirmResult.error.message || "Payment failed. Please try another card.");
+          setProc(false);
+          return;
+        }
+        if (confirmResult.paymentIntent && confirmResult.paymentIntent.status === "succeeded") {
+          setPct(100);
+          setTimeout(() => { setDone(true); setTimeout(onPaid, 800); }, 300);
+          return;
+        }
+        setError("Payment did not complete. Please try again.");
+      } catch (err) {
+        setError(err.message || "Unable to complete payment. Please try again.");
+      } finally {
+        if (!done) setProc(false);
+      }
+      return;
     }
 
     if (method === "ach") {
@@ -507,8 +653,6 @@ function PayModal({inv, project, onClose, onPaid, stripeKey}) {
       return;
     }
 
-    // Run simulated payment flow (works in demo AND with Stripe key)
-    // When backend is ready, replace runProgress with real Stripe confirmCardPayment
     runProgress(onPaid);
   };
 
@@ -591,21 +735,8 @@ function PayModal({inv, project, onClose, onPaid, stripeKey}) {
                     style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 13px",fontSize:13,color:"var(--text)",fontFamily:"var(--fb)",outline:"none"}}/>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"1px",display:"block",marginBottom:5}}>Card Number</label>
-                  <input value={cardNum} onChange={e=>setCardNum(fmtCardNum(e.target.value))} placeholder="4242 4242 4242 4242" maxLength={19}
-                    style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 13px",fontSize:13,color:"var(--text)",fontFamily:"monospace",outline:"none",letterSpacing:"1px"}}/>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                  <div>
-                    <label style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"1px",display:"block",marginBottom:5}}>Expiry</label>
-                    <input value={expiry} onChange={e=>setExpiry(fmtExpiry(e.target.value))} placeholder="MM/YY" maxLength={5}
-                      style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 13px",fontSize:13,color:"var(--text)",fontFamily:"var(--fb)",outline:"none"}}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"1px",display:"block",marginBottom:5}}>CVC</label>
-                    <input value={cvc} onChange={e=>setCvc(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="123" type="password"
-                      style={{width:"100%",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 13px",fontSize:13,color:"var(--text)",fontFamily:"var(--fb)",outline:"none"}}/>
-                  </div>
+                  <label style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"1px",display:"block",marginBottom:5}}>Card Details</label>
+                  <div id="stripe-card-element" style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:8,padding:"16px",fontSize:15,color:"var(--text)"}} />
                 </div>
                 {isTest && (
                   <div style={{background:"rgba(201,168,76,0.07)",border:"1px solid rgba(201,168,76,0.2)",borderRadius:7,padding:"8px 12px",fontSize:11,color:"var(--gold)",marginBottom:12}}>
@@ -754,7 +885,7 @@ function ServicesManager({services,setServices}) {
 }
 
 // ── NEW BOOKING MODAL (uses live services) ─────────────────────────────────────
-function NewBookingModal({services,clients,onClose,onCreate}) {
+function NewBookingModal({services,clients,onClose,onCreate,onCreateClient}) {
   const [step,setStep]=useState(1);
   const [selectedServices,setSelectedServices]=useState([]);
   const [clientMode,setClientMode]=useState("existing");
@@ -767,11 +898,25 @@ function NewBookingModal({services,clients,onClose,onCreate}) {
   const selectedTotal=selectedServices.reduce((s,id)=>{ const sv=services.find(x=>x.id===id); return s+(sv?.price||0); },0);
   const clientName = clientMode==="existing" ? (clients.find(c=>c.id===selectedClient)?.name||"") : newClient.name;
 
-  const finish=()=>{
+  const finish=async()=>{
     if(!selectedServices.length||!form.property) return;
     const lineItems=selectedServices.map(id=>{ const sv=services.find(x=>x.id===id); return {desc:`${sv.icon} ${sv.name}`,rate:sv.price}; });
-    const clientId = clientMode==="existing" ? selectedClient : `c${Date.now()}`;
-    onCreate({ clientId, type:form.type, services:selectedServices, client:clientName, property:form.property, status:"pending", progress:0, price:selectedTotal, scheduledDate:form.date, scheduledTime:form.time, media:[], messages:[], invoice:null, lineItems });
+    let clientId = clientMode==="existing" ? selectedClient : null;
+    let clientName = clientMode==="existing" ? (clients.find(c=>c.id===selectedClient)?.name||"") : newClient.name;
+
+    if (clientMode==="new" && onCreateClient) {
+      const created = await onCreateClient({ name:newClient.name, email:newClient.email, company:newClient.company, password:"" });
+      if (created?.id) {
+        clientId = created.id;
+        clientName = created.name;
+      }
+    }
+
+    if (!clientId) {
+      clientId = `c${Date.now()}`;
+    }
+
+    await onCreate({ clientId, type:form.type, services:selectedServices, client:clientName, property:form.property, status:"pending", progress:0, price:selectedTotal, scheduledDate:form.date, scheduledTime:form.time, media:[], messages:[], invoice:null, lineItems });
     onClose();
   };
 
@@ -1984,20 +2129,16 @@ function MonthlyStatements({ projects, clients }) {
 }
 
 // ── STUDIO APP ─────────────────────────────────────────────────────────────────
-function StudioApp({user,onLogout,services,setServices}) {
-  const [projects,setProjects]=useState([]);
-  const [clients,setClients]=useState([]);
+function StudioApp({user,onLogout,services,setServices,projects,setProjects,clients,brand,stripeKey,setStripeKey,setBrand,onCreateProject,onUpdateProject,apiAvailable,addClient}) {
   const [nav,setNav]=useState("dashboard");
   const [selId,setSelId]=useState(null);
   const [showBook,setShowBook]=useState(false);
   const [menuOpen,setMenuOpen]=useState(false);
-  const [stripeKey,setStripeKey]=useState(()=>loadStripeConfig().publishableKey||"");
-  const [brand,setBrand]=useState(()=>loadBranding());
   const [cashModal,setCashModal]=useState(null); // project to record cash payment for
 
   const sel=projects.find(p=>p.id===selId);
-  const update=u=>setProjects(ps=>ps.map(p=>p.id===u.id?u:p));
-  const create=d=>setProjects(ps=>[...ps,{...d,id:Date.now()}]);
+  const update=onUpdateProject;
+  const create=onCreateProject;
   const open=id=>{setSelId(id);setNav("detail");};
   const unpaid=projects.filter(p=>p.invoice&&!p.invoice.paid).length;
   const overdue7Count=projects.filter(p=>p.invoice&&!p.invoice.paid&&isOverdue7(p.invoice)).length;
@@ -2035,7 +2176,7 @@ function StudioApp({user,onLogout,services,setServices}) {
     <>
       <style>{BASE_CSS}</style>
       <div className="app">
-        {showBook&&<NewBookingModal services={services} clients={clients} onClose={()=>setShowBook(false)} onCreate={d=>{create(d);setShowBook(false);}}/>}
+        {showBook&&<NewBookingModal services={services} clients={clients} onClose={()=>setShowBook(false)} onCreate={async d=>{await create(d);setShowBook(false);}} onCreateClient={addClient}/>}        
         {cashModal&&<CashPaymentModal project={cashModal} onClose={()=>setCashModal(null)} onConfirm={(data)=>handleCashPayment(cashModal,data)}/>}
         <nav className="topnav">
           <button className={`hbtn ${menuOpen?"open":""}`} onClick={()=>setMenuOpen(o=>!o)}><div className="hbar"/><div className="hbar"/><div className="hbar"/></button>
@@ -2291,14 +2432,36 @@ function LandingPage({onStudioSignup,onStudioLogin,onClientLogin}) {
 }
 
 // ── AUTH SCREENS ──────────────────────────────────────────────────────────────
-function StudioSignup({plan,onComplete,onLogin}) {
+function StudioSignup({plan,onComplete,onLogin,apiAvailable}) {
   const [step,setStep]=useState(1);
   const [form,setForm]=useState({name:"",studio:"",email:"",password:""});
   const [selPlan,setSelPlan]=useState(plan||PLANS[1]);
   const [annual,setAnnual]=useState(false);
-  const [proc,setProc]=useState(false);
-  const [pct,setPct]=useState(0);
-  const go=()=>{if(proc)return;setProc(true);let p=0;const iv=setInterval(()=>{p+=Math.random()*20+8;if(p>=100){p=100;clearInterval(iv);setTimeout(()=>onComplete({name:form.name,studio:form.studio,email:form.email,plan:selPlan,role:"studio"}),500);}setPct(Math.min(p,100));},100);};
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+
+  const submit = async () => {
+    if (!form.name || !form.studio || !form.email || !form.password) return;
+    setLoading(true);
+    setError("");
+    const payload = { name: form.name, studio: form.studio, email: form.email, password: form.password, plan: selPlan, role: 'studio' };
+
+    if (apiAvailable) {
+      try {
+        const data = await apiFetch('studio/signup', { method: 'POST', body: payload });
+        onComplete(data);
+        return;
+      } catch (err) {
+        setError(err.message || 'Unable to create studio account.');
+        setLoading(false);
+        return;
+      }
+    }
+
+    saveStudioUser(payload);
+    onComplete(payload);
+  };
+
   return (
     <div className="auth-wrap fade-slide"><style>{BASE_CSS}</style>
       <div className="auth-card" style={{width:"min(500px,95vw)"}}>
@@ -2327,10 +2490,10 @@ function StudioSignup({plan,onComplete,onLogin}) {
             <div className="rb"><span className="tm">{selPlan.name} Plan</span><span style={{fontFamily:"var(--fd)",fontSize:18,color:"var(--gold)"}}>${annual?selPlan.annual:selPlan.price}/mo</span></div>
             <div className="tx tm mts">No charge for 14 days · Cancel anytime</div>
           </div>
-          <div className="fg"><label className="fl">Card Number</label><input className="fi" placeholder="4242 4242 4242 4242"/></div>
-          <div className="g2"><div className="fg"><label className="fl">Expiry</label><input className="fi" placeholder="MM/YY"/></div><div className="fg"><label className="fl">CVV</label><input className="fi" placeholder="•••" type="password"/></div></div>
-          {proc&&<div style={{marginBottom:10}}><div className="tx tm" style={{marginBottom:5}}>Setting up your studio…</div><div className="proc-bar"><div className="proc-fill" style={{width:`${pct}%`}}/></div></div>}
-          <div className="row" style={{gap:8,marginTop:4}}><button className="btn bgh" style={{flex:1,justifyContent:"center"}} onClick={()=>setStep(2)} disabled={proc}>← Back</button><button className="btn bg" style={{flex:2,justifyContent:"center"}} onClick={go} disabled={proc}>{proc?`Creating… ${Math.round(pct)}%`:"🚀 Launch My Studio"}</button></div>
+          {error&&<div style={{background:"rgba(224,112,112,0.1)",border:"1px solid rgba(224,112,112,0.25)",borderRadius:7,padding:"9px 13px",fontSize:12,color:"var(--red)",marginBottom:12}}>{error}</div>}
+          <div className="fg"><label className="fl">Card Number</label><input className="fi" placeholder="4242 4242 4242 4242" disabled/></div>
+          <div className="g2"><div className="fg"><label className="fl">Expiry</label><input className="fi" placeholder="MM/YY" disabled/></div><div className="fg"><label className="fl">CVV</label><input className="fi" placeholder="•••" type="password" disabled/></div></div>
+          <div className="row" style={{gap:8,marginTop:4}}><button className="btn bgh" style={{flex:1,justifyContent:"center"}} onClick={()=>setStep(2)} disabled={loading}>← Back</button><button className="btn bg" style={{flex:2,justifyContent:"center"}} onClick={submit} disabled={loading}>{loading?"Creating…":"🚀 Launch My Studio"}</button></div>
           <div className="tx tm" style={{textAlign:"center",marginTop:9}}>🔒 SSL encrypted · Cancel anytime</div>
         </div>}
       </div>
@@ -2338,10 +2501,34 @@ function StudioSignup({plan,onComplete,onLogin}) {
   );
 }
 
-function StudioLogin({onComplete,onSignup}) {
+function StudioLogin({onComplete,onSignup,apiAvailable}) {
   const [form,setForm]=useState({email:"",password:""});
+  const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
-  const login=()=>{setLoading(true);setTimeout(()=>onComplete({name:"Alex Lee",studio:"Elev8 Studios",email:form.email||"alex@elev8.com",plan:PLANS[1],role:"studio"}),1000);};
+  const login=async()=>{
+    setErr("");
+    setLoading(true);
+    if (apiAvailable) {
+      try {
+        const user = await apiFetch('studio/login', { method: 'POST', body: form });
+        onComplete(user);
+        return;
+      } catch (error) {
+        setErr(error.message || 'Login failed.');
+        setLoading(false);
+        return;
+      }
+    }
+    setTimeout(()=>{
+      const stored = loadStudioUser();
+      if (stored && stored.email.toLowerCase()===form.email.toLowerCase() && stored.password===form.password) {
+        onComplete(stored);
+      } else {
+        setErr(stored?"Email or password incorrect. Try again or sign up":"No studio account found. Please sign up first.");
+        setLoading(false);
+      }
+    },1000);
+  };
   return (
     <div className="auth-wrap fade-slide"><style>{BASE_CSS}</style>
       <div className="auth-card">
@@ -2351,6 +2538,7 @@ function StudioLogin({onComplete,onSignup}) {
         <div className="divider-text">or</div>
         <div className="fg"><label className="fl">Email</label><input className="fi" type="email" placeholder="you@studio.com" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></div>
         <div className="fg"><label className="fl">Password</label><input className="fi" type="password" placeholder="••••••••" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))}/></div>
+        {err&&<div style={{background:"rgba(224,112,112,0.1)",border:"1px solid rgba(224,112,112,0.25)",borderRadius:7,padding:"9px 13px",fontSize:12,color:"var(--red)",marginBottom:12}}>{err}</div>}
         <button className="btn bg" style={{width:"100%",justifyContent:"center"}} onClick={login} disabled={loading}>{loading?"Signing in…":"Log In →"}</button>
         <div style={{textAlign:"center",marginTop:12,fontSize:13,color:"var(--muted)"}}>Don't have an account? <span style={{color:"var(--gold)",cursor:"pointer"}} onClick={onSignup}>Start free trial</span></div>
       </div>
@@ -2365,8 +2553,9 @@ function ClientLogin({onComplete,onBack}) {
   const login=()=>{
     setErr(""); setLoading(true);
     setTimeout(()=>{
-      const found=null; // Demo mode disabled
-      if(found){ onComplete(found); } else { setErr("Invalid email or password. Please contact your studio for login details."); setLoading(false); }
+      const clients = loadClients();
+      const found = clients.find(c=>c.email.toLowerCase()===form.email.toLowerCase()&&c.password===form.password);
+      if(found){ onComplete(found); } else { setErr("Email or password incorrect. If you don't have an account, create one below."); setLoading(false); }
     },800);
   };
   const [showSignup,setShowSignup]=useState(false);
@@ -2393,7 +2582,12 @@ function ClientLogin({onComplete,onBack}) {
           <div className="fg"><label className="fl">Email</label><input className="fi" type="email" placeholder="jane@company.com" value={sf.email} onChange={e=>setSf(f=>({...f,email:e.target.value}))}/></div>
           <div className="fg"><label className="fl">Company (optional)</label><input className="fi" placeholder="Smith Realty" value={sf.company} onChange={e=>setSf(f=>({...f,company:e.target.value}))}/></div>
           <div className="fg"><label className="fl">Password</label><input className="fi" type="password" value={sf.password} onChange={e=>setSf(f=>({...f,password:e.target.value}))}/></div>
-          <button className="btn bg" style={{width:"100%",justifyContent:"center"}} onClick={()=>onComplete({id:`c${Date.now()}`,name:sf.name,email:sf.email,password:sf.password,initials:sf.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(),color:"#5b8dd9",company:sf.company})} disabled={!sf.name||!sf.email||!sf.password}>Create Free Account →</button>
+          <button className="btn bg" style={{width:"100%",justifyContent:"center"}} onClick={()=>{
+              const newClient={id:`c${Date.now()}`,name:sf.name,email:sf.email,password:sf.password,initials:sf.name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(),color:"#5b8dd9",company:sf.company};
+              const clients=loadClients();
+              saveClients([...clients,newClient]);
+              onComplete(newClient);
+            }} disabled={!sf.name||!sf.email||!sf.password}>Create Free Account →</button>
           <div style={{textAlign:"center",marginTop:12,fontSize:13,color:"var(--muted)"}}><span style={{color:"var(--gold)",cursor:"pointer"}} onClick={()=>setShowSignup(false)}>← Back to login</span></div>
         </>}
       </div>
@@ -2403,28 +2597,109 @@ function ClientLogin({onComplete,onBack}) {
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen,setScreen]=useState("landing");
+  const [screen,setScreen]=useState(() => {
+    const session = loadSession();
+    if (session?.user) return "studio";
+    if (session?.client) return "client";
+    return "landing";
+  });
   const [signupPlan,setSignupPlan]=useState(null);
-  const [user,setUser]=useState(null);
-  const [client,setClient]=useState(null);
-  const [services,setServices]=useState(DEFAULT_SERVICES);
-  const [projects,setProjects]=useState([]);
+  const [user,setUser]=useState(() => loadSession()?.user || null);
+  const [client,setClient]=useState(() => loadSession()?.client || null);
+  const [services,setServices]=useState(() => loadServices());
+  const [projects,setProjects]=useState(() => loadProjects());
+  const [clients,setClients]=useState(() => loadClients());
+  const [branding,setBrand]=useState(() => loadBranding());
+  const [stripeKey,setStripeKey]=useState(() => loadStripeConfig().publishableKey||"");
+  const [apiAvailable,setApiAvailable]=useState(true);
+
+  useEffect(() => { saveSession({ user, client }); }, [user, client]);
+  useEffect(() => { saveServices(services); if (apiAvailable) apiFetch('services', { method: 'PUT', body: services }).catch(() => {}); }, [services, apiAvailable]);
+  useEffect(() => { saveProjects(projects); }, [projects]);
+  useEffect(() => { saveClients(clients); }, [clients]);
+  useEffect(() => { saveBranding(branding); if (apiAvailable) apiFetch('branding', { method: 'PUT', body: branding }).catch(() => {}); }, [branding, apiAvailable]);
+  useEffect(() => { saveStripeConfig({ publishableKey: stripeKey }); if (apiAvailable) apiFetch('stripe-config', { method: 'PUT', body: { publishableKey: stripeKey } }).catch(() => {}); }, [stripeKey, apiAvailable]);
+
+  useEffect(() => {
+    const loadBackend = async () => {
+      try {
+        const data = await apiFetch('data');
+        if (data.services) setServices(data.services);
+        if (data.projects) setProjects(data.projects);
+        if (data.clients) setClients(data.clients);
+        if (data.branding) setBrand(data.branding);
+        if (data.stripeConfig) setStripeKey(data.stripeConfig.publishableKey || "");
+      } catch (err) {
+        setApiAvailable(false);
+      }
+    };
+    loadBackend();
+  }, []);
 
   const updateProject=u=>setProjects(ps=>ps.map(p=>p.id===u.id?u:p));
 
   const handleStudioSignup=(plan)=>{setSignupPlan(plan);setScreen("studio-signup");};
-  const handleStudioSignupDone=(u)=>{setUser(u);setScreen("studio");};
+  const handleStudioSignupDone=(u)=>{saveStudioUser(u);setUser(u);setScreen("studio");};
   const handleStudioLogin=()=>setScreen("studio-login");
   const handleStudioLoginDone=(u)=>{setUser(u);setScreen("studio");};
   const handleClientLogin=()=>setScreen("client-login");
   const handleClientLoginDone=(c)=>{setClient(c);setScreen("client");};
   const handleLogout=()=>{setUser(null);setClient(null);setScreen("landing");};
 
+  const createProject = async project => {
+    if (apiAvailable) {
+      try {
+        const saved = await apiFetch('projects', { method: 'POST', body: project });
+        setProjects(ps => [...ps, saved]);
+        return saved;
+      } catch (error) {
+        console.warn('Project create failed, using local fallback.', error);
+      }
+    }
+    const localProject = { ...project, id: Date.now() };
+    setProjects(ps => [...ps, localProject]);
+    return localProject;
+  };
+
+  const updateProject = async project => {
+    if (apiAvailable) {
+      try {
+        const saved = await apiFetch(`projects/${project.id}`, { method: 'PUT', body: project });
+        setProjects(ps => ps.map(p => p.id === saved.id ? saved : p));
+        return saved;
+      } catch (error) {
+        console.warn('Project update failed, using local fallback.', error);
+      }
+    }
+    setProjects(ps => ps.map(p => p.id === project.id ? project : p));
+    return project;
+  };
+
+  const addClient = async clientData => {
+    if (apiAvailable) {
+      try {
+        const created = await apiFetch('client/signup', { method: 'POST', body: clientData });
+        setClients(cs => [...cs, created]);
+        return created;
+      } catch (error) {
+        console.warn('Client create failed, using local fallback.', error);
+      }
+    }
+    const fallbackClient = {
+      ...clientData,
+      id: `c${Date.now()}`,
+      initials: clientData.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(),
+      color: clientData.color || '#5b8dd9',
+    };
+    setClients(cs => [...cs, fallbackClient]);
+    return fallbackClient;
+  };
+
   if(screen==="landing") return <LandingPage onStudioSignup={handleStudioSignup} onStudioLogin={handleStudioLogin} onClientLogin={handleClientLogin}/>;
-  if(screen==="studio-signup") return <StudioSignup plan={signupPlan} onComplete={handleStudioSignupDone} onLogin={handleStudioLogin}/>;
-  if(screen==="studio-login") return <StudioLogin onComplete={handleStudioLoginDone} onSignup={()=>handleStudioSignup(null)}/>;
-  if(screen==="client-login") return <ClientLogin onComplete={handleClientLoginDone} onBack={()=>setScreen("landing")}/>;
-  if(screen==="studio"&&user) return <StudioApp user={user} onLogout={handleLogout} services={services} setServices={setServices}/>;
-  if(screen==="client"&&client) return <ClientPortal client={client} projects={projects} onUpdateProject={updateProject} onLogout={handleLogout}/>;
+  if(screen==="studio-signup") return <StudioSignup plan={signupPlan} onComplete={handleStudioSignupDone} onLogin={handleStudioLogin} apiAvailable={apiAvailable}/>;
+  if(screen==="studio-login") return <StudioLogin onComplete={handleStudioLoginDone} onSignup={()=>handleStudioSignup(null)} apiAvailable={apiAvailable}/>;
+  if(screen==="client-login") return <ClientLogin onComplete={handleClientLoginDone} onBack={()=>setScreen("landing")} apiAvailable={apiAvailable}/>;
+  if(screen==="studio"&&user) return <StudioApp user={user} onLogout={handleLogout} services={services} setServices={setServices} projects={projects} setProjects={setProjects} clients={clients} brand={branding} stripeKey={stripeKey} setStripeKey={setStripeKey} setBrand={setBrand} onCreateProject={createProject} onUpdateProject={updateProject} apiAvailable={apiAvailable} addClient={addClient}/>;
+  if(screen==="client"&&client) return <ClientPortal client={client} projects={projects} onUpdateProject={updateProject} onLogout={handleLogout} stripeKey={stripeKey} brand={branding}/>;
   return <LandingPage onStudioSignup={handleStudioSignup} onStudioLogin={handleStudioLogin} onClientLogin={handleClientLogin}/>;
 }

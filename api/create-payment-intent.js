@@ -6,8 +6,7 @@ module.exports = async (req, res) => {
     const intent = await stripe.paymentIntents.create({
       amount: req.body.amountCents, // e.g. 21500 = $215.00
       currency: 'usd',
-      payment_method: req.body.paymentMethodId,
-      confirm: true,
+      payment_method_types: ['card'],
       metadata: { invoiceNumber: req.body.invoiceNumber }
     });
     res.json({ clientSecret: intent.client_secret });
