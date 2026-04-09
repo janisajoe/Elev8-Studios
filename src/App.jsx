@@ -311,6 +311,91 @@ select.fi{cursor:pointer;}
 .fade-slide{animation:fadeSlide .4s ease;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.6;}}
 .pulse{animation:pulse 2s infinite;}
+/* MOBILE RESPONSIVE */
+@media(max-width:768px){
+  .page{padding:16px 18px;}
+  .topnav{padding:0 12px;height:48px;gap:8px;}
+  .sb-logo h1{font-size:18px;}
+  .nav-pills{display:none;}
+  .sb-foot{gap:4px;padding-left:6px;border:none;}
+  .sb-foot .fw{font-size:11px;}
+  .st{font-size:16px;}
+  .pt{font-size:24px;}
+  .btn{font-size:12px;padding:7px 14px;}
+  .btn.bs{padding:5px 10px;font-size:11px;}
+  .g2{grid-template-columns:1fr;}
+  .g3{grid-template-columns:1fr;}
+  .g4{grid-template-columns:repeat(2,1fr);}
+  .md{width:95vw!important;max-height:90vh;}
+  .md .st{font-size:15px;margin-bottom:10px;}
+  .row{flex-wrap:wrap;}
+  .rb{flex-wrap:wrap;}
+  .card{padding:14px;}
+  .tabs{flex-wrap:wrap;}
+  .tab{padding:7px 12px;font-size:12px;}
+  .navItems{flex-wrap:wrap;}
+  .testi-grid{grid-template-columns:1fr;}
+  .plan-grid{grid-template-columns:1fr;}
+  .feat-grid{grid-template-columns:1fr;}
+  .hero h2{font-size:clamp(28px,6vw,40px);}
+  .saas-nav{flex-wrap:wrap;padding:12px 18px;}
+  .saas-nav-links{flex-wrap:wrap;gap:4px;}
+  .snl{padding:5px 10px;font-size:11px;}
+  .av{width:28px!important;height:28px!important;font-size:10px;}
+  .auth-card{width:90vw;padding:24px;}
+  .auth-title{font-size:18px;}
+  .auth-sub{font-size:12px;}
+  .fg{margin-bottom:10px;}
+  .fi{padding:8px 11px;font-size:13px;}
+  .fl{font-size:10px;}
+  .inv-doc{border-radius:8px;}
+  .inv-head{padding:16px 18px;}
+  .inv-body{padding:16px 18px;}
+  .inv-logo{font-size:20px;}
+  .inv-table{font-size:11px;}
+  .inv-table td{padding:7px 0;}
+  .pc{padding:12px;}
+  .pn{font-size:14px;}
+  .prb{margin:8px 0;}
+  .mg{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;}
+  .mt{border-radius:6px;}
+  .section-title-lg{font-size:clamp(18px,5vw,28px);}
+  .hero-btns{flex-direction:column;}
+  .hero-btns .btn{width:100%;}
+  .saas-footer{flex-direction:column;padding:16px 18px;}
+  .pay-opt{padding:7px;font-size:11px;}
+  .mo .md{margin:0;}
+  .dv{margin:10px 0;}
+  .mts{margin-top:5px;}
+  .mtm{margin-top:10px;}
+  .mbm{margin-bottom:10px;}
+  .ph{margin-bottom:16px;}
+  .mo{backdrop-filter:blur(2px);}
+}
+@media(max-width:480px){
+  .page{padding:12px 12px;}
+  .topnav{padding:0 8px;}
+  .sb-logo h1{font-size:16px;}
+  .pt{font-size:20px;}
+  .st{font-size:14px;}
+  .btn{font-size:11px;padding:6px 12px;}
+  .g4{grid-template-columns:1fr;}
+  .card{padding:11px;}
+  .hero h2{font-size:clamp(22px,5vw,28px);}
+  .plan-card{padding:18px;}
+  .plan-price{font-size:32px;}
+  .hero p{font-size:14px;}
+  .auth-card{width:97vw;padding:18px;}
+  .div.navbar-search{width:100%;}
+  .md{width:97vw!important;}
+  .row{gap:6px;}
+  .rb{gap:6px;}
+  .mg{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));}
+  .inv-table th{font-size:9px;}
+  .ts{font-size:11px;}
+  .tx{font-size:10px;}
+  .fw{font-weight:600;}
+}
 `;
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
@@ -434,7 +519,6 @@ const DEFAULT_BRAND = {
   logoInitials: "",
   accentColor: "#c9a84c",
 };
-
 const loadBranding = () => {
   try { return { ...DEFAULT_BRAND, ...JSON.parse(localStorage.getItem(BRAND_KEY)||"{}") }; } catch { return DEFAULT_BRAND; }
 };
@@ -446,12 +530,6 @@ const loadStripeConfig = () => {
 };
 const saveStripeConfig = cfg => {
   try { localStorage.setItem(STRIPE_CONFIG_KEY, JSON.stringify(cfg)); } catch {}
-};
-const loadJSON = (key, fallback = null) => {
-  try { const item = localStorage.getItem(key); return item ? JSON.parse(item) : fallback; } catch { return fallback; }
-};
-const saveJSON = (key, value) => {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
 };
 const loadStudioUser = () => loadJSON("elev8_studio_user", null);
 const saveStudioUser = u => saveJSON("elev8_studio_user", u);
@@ -479,23 +557,6 @@ const apiFetch = async (path, options = {}) => {
   return json;
 };
 let stripePromise = null;
-const loadStripe = async (key) => {
-  if (!key) return null;
-  if (stripePromise && stripePromise.key === key) return stripePromise.instance;
-  if (typeof window === "undefined") return null;
-  if (!window.Stripe) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://js.stripe.com/v3/";
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
-  const instance = window.Stripe(key);
-  stripePromise = { key, instance };
-  return instance;
-};
 
 // ── PAY MODAL — STABLE CRASH-PROOF VERSION ────────────────────────────────────
 function PayModal({inv, project, onClose, onPaid, stripeKey}) {
@@ -506,9 +567,9 @@ function PayModal({inv, project, onClose, onPaid, stripeKey}) {
   const [error,  setError]    = useState("");
   const [name,   setName]     = useState("");
   const [email,  setEmail]    = useState("");
-  const [stripe, setStripe]   = useState(null);
-  const cardRef                 = useRef(null);
-  const elementsRef             = useRef(null);
+  const [cardNum,setCardNum]  = useState("");
+  const [expiry, setExpiry]   = useState("");
+  const [cvc,    setCvc]      = useState("");
 
   const hasStripe = !!(stripeKey && stripeKey.startsWith("pk_"));
   const isLive    = !!(stripeKey && stripeKey.startsWith("pk_live_"));
@@ -885,6 +946,7 @@ function NewBookingModal({services,clients,onClose,onCreate,onCreateClient}) {
   const [clientMode,setClientMode]=useState("existing");
   const [selectedClient,setSelectedClient]=useState(clients[0]?.id||"");
   const [newClient,setNewClient]=useState({name:"",email:"",company:""});
+  const [photographer,setPhotographer]=useState("");
   const [form,setForm]=useState({property:"",date:"",time:"10:00",type:"Real Estate"});
 
   const activeServices=services.filter(s=>s.active);
@@ -910,7 +972,7 @@ function NewBookingModal({services,clients,onClose,onCreate,onCreateClient}) {
       clientId = `c${Date.now()}`;
     }
 
-    await onCreate({ clientId, type:form.type, services:selectedServices, client:clientName, property:form.property, status:"pending", progress:0, price:selectedTotal, scheduledDate:form.date, scheduledTime:form.time, media:[], messages:[], invoice:null, lineItems });
+    await onCreate({ clientId, type:form.type, services:selectedServices, client:clientName, property:form.property, photographer:photographer||"", status:"pending", progress:0, price:selectedTotal, scheduledDate:form.date, scheduledTime:form.time, media:[], messages:[], invoice:null, lineItems });
     onClose();
   };
 
@@ -980,6 +1042,7 @@ function NewBookingModal({services,clients,onClose,onCreate,onCreateClient}) {
                 <div className="fg"><label className="fl">Company (optional)</label><input className="fi" placeholder="Smith Realty" value={newClient.company} onChange={e=>setNewClient(n=>({...n,company:e.target.value}))} /></div>
               </>
             )}
+            <div className="fg"><label className="fl">Assigned Photographer</label><input className="fi" placeholder="e.g. Alex Johnson" value={photographer} onChange={e=>setPhotographer(e.target.value)} /></div>
             <div className="fg"><label className="fl">Property / Event Name</label><input className="fi" placeholder="123 Oak Street or Annual Gala" value={form.property} onChange={e=>setForm(f=>({...f,property:e.target.value}))} /></div>
             <div className="g2">
               <div className="fg"><label className="fl">Date</label><input className="fi" type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} /></div>
@@ -997,6 +1060,7 @@ function NewBookingModal({services,clients,onClose,onCreate,onCreateClient}) {
             <p className="tm ts mbm">Review & confirm</p>
             <div className="card" style={{padding:16,marginBottom:13}}>
               <div className="rb ts mbm"><span className="tm">Client</span><span>{clientName}</span></div>
+              <div className="rb ts mbm"><span className="tm">Photographer</span><span>{photographer||"—"}</span></div>
               <div className="rb ts mbm"><span className="tm">Location</span><span style={{fontSize:12}}>{form.property}</span></div>
               <div className="rb ts mbm"><span className="tm">Date</span><span>{form.date?fmtD(form.date):"—"} · {form.time}</span></div>
               <div className="dv"/>
@@ -1263,6 +1327,8 @@ function ProjectDetail({project,onBack,onUpdate,isClient=false,clientName="",str
   const [msg,setMsg]=useState("");
   const [p,setP]=useState(project);
   const [showPay,setShowPay]=useState(false);
+  const [editInv,setEditInv]=useState(false);
+  const [invEdit,setInvEdit]=useState(null);
   const msgEnd=useRef(null);
   const save=u=>{setP(u);onUpdate(u);};
   const nextS={pending:"shooting",shooting:"editing",editing:"delivered"};
@@ -1377,18 +1443,47 @@ function ProjectDetail({project,onBack,onUpdate,isClient=false,clientName="",str
             </div>
           ):(
             <>
-              <InvDoc inv={p.invoice} project={p} onPay={()=>setShowPay(true)} brand={brand}/>
-              {!isClient&&!p.invoice.paid&&(
+              {!editInv ? (
                 <>
-                  {p.bookingLocked&&<div style={{background:"rgba(224,112,112,0.07)",border:"1px solid rgba(224,112,112,0.2)",borderRadius:8,padding:"10px 14px",marginBottom:10,fontSize:13,display:"flex",alignItems:"center",gap:10}}><span>🔒</span><span style={{color:"var(--red)"}}>Client booking is locked due to overdue payment</span></div>}
-                  <div className="row" style={{gap:8,marginTop:11,flexWrap:"wrap"}}>
-                    <button className="btn bgh bs">↓ Download PDF</button>
-                    <button className="btn bgh bs">✉ Resend</button>
-                    <button className="btn bs" style={{background:"rgba(76,175,130,0.12)",border:"1px solid rgba(76,175,130,0.3)",color:"var(--green)"}}
-                      onClick={()=>onCashPayment&&onCashPayment(p)}>💵 Record Cash/Check</button>
-                    <button className="btn btn-ok bs" onClick={()=>{const u={...p,invoice:{...p.invoice,paid:true,paidDate:new Date().toISOString().split("T")[0]}};save(u);}}>✓ Mark Paid</button>
-                  </div>
+                  <InvDoc inv={p.invoice} project={p} onPay={()=>setShowPay(true)} brand={brand}/>
+                  {!isClient&&!p.invoice.paid&&(
+                    <>
+                      {p.bookingLocked&&<div style={{background:"rgba(224,112,112,0.07)",border:"1px solid rgba(224,112,112,0.2)",borderRadius:8,padding:"10px 14px",marginBottom:10,fontSize:13,display:"flex",alignItems:"center",gap:10}}><span>🔒</span><span style={{color:"var(--red)"}}>Client booking is locked due to overdue payment</span></div>}
+                      <div className="row" style={{gap:8,marginTop:11,flexWrap:"wrap"}}>
+                        <button className="btn bgh bs">↓ Download PDF</button>
+                        <button className="btn bgh bs">✉ Resend</button>
+                        <button className="btn bs" style={{background:"rgba(76,175,130,0.12)",border:"1px solid rgba(76,175,130,0.3)",color:"var(--green)"}}
+                          onClick={()=>onCashPayment&&onCashPayment(p)}>💵 Record Cash/Check</button>
+                        <button className="btn bs" style={{background:"rgba(201,168,76,0.1)",border:"1px solid rgba(201,168,76,0.25)",color:"var(--gold)"}} onClick={()=>{setEditInv(true);setInvEdit({...p.invoice,lineItems:[...(p.invoice.lineItems||[])]});}}>Edit Invoice</button>
+                        <button className="btn btn-ok bs" onClick={()=>{const u={...p,invoice:{...p.invoice,paid:true,paidDate:new Date().toISOString().split("T")[0]}};save(u);}}>✓ Mark Paid</button>
+                      </div>
+                    </>
+                  )}
                 </>
+              ) : (
+                <div className="card">
+                  <div className="st" style={{fontSize:16,marginBottom:14}}>Edit Invoice</div>
+                  <div style={{marginBottom:14}}>
+                    {(invEdit?.lineItems||[]).map((li,i)=>(
+                      <div key={i} style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-end"}}>
+                        <input className="fi" placeholder="Description" value={li.desc} onChange={e=>{const ni=[...(invEdit?.lineItems||[])];ni[i]={...li,desc:e.target.value};setInvEdit({...invEdit,lineItems:ni});}} style={{flex:2}}/>
+                        <input className="fi" type="number" placeholder="Amount" value={li.rate} onChange={e=>{const ni=[...(invEdit?.lineItems||[])];ni[i]={...li,rate:parseFloat(e.target.value)||0};setInvEdit({...invEdit,lineItems:ni});}} style={{flex:1}}/>
+                        <button className="btn bs btn-del" onClick={()=>{const ni=(invEdit?.lineItems||[]).filter((_,j)=>j!==i);setInvEdit({...invEdit,lineItems:ni});}} style={{padding:"8px 12px"}}>✕</button>
+                      </div>
+                    ))}
+                    <button className="btn bgh bs" onClick={()=>{const ni=[...(invEdit?.lineItems||[]),{desc:"",rate:0}];setInvEdit({...invEdit,lineItems:ni});}} style={{width:"100%",justifyContent:"center"}}>+ Add Line Item</button>
+                  </div>
+                  <div style={{background:"var(--surface2)",borderRadius:8,padding:"10px 14px",marginBottom:14}}>
+                    <div className="rb ts mbm"><span className="tm">Subtotal</span><span>{fmt((invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0))}</span></div>
+                    <div className="rb ts"><span className="tm">Tax (8%)</span><span>{fmt(Math.round((invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0)*0.08))}</span></div>
+                    <div className="dv" style={{margin:"8px 0"}}/>
+                    <div className="rb"><span className="fw">Total</span><span style={{color:"var(--gold)",fontFamily:"var(--fd)",fontSize:18}}>{fmt(Math.round((invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0)*1.08))}</span></div>
+                  </div>
+                  <div className="row" style={{gap:8}}>
+                    <button className="btn bgh" style={{flex:1,justifyContent:"center"}} onClick={()=>setEditInv(false)}>Cancel</button>
+                    <button className="btn bg" style={{flex:2,justifyContent:"center"}} onClick={()=>{const newTotal=Math.round((invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0)*1.08);const newInv={...invEdit,subtotal:(invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0),tax:Math.round((invEdit?.lineItems||[]).reduce((s,l)=>s+l.rate,0)*0.08),total:newTotal};save({...p,invoice:newInv,price:newTotal});setEditInv(false);}}>Save Changes</button>
+                  </div>
+                </div>
               )}
             </>
           )}
